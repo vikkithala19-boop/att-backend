@@ -6,8 +6,7 @@ from bs4 import BeautifulSoup
 app = Flask(__name__)
 CORS(app)
 
-LOGIN_PAGE = "https://ecampus.psgtech.ac.in/"
-LOGIN_POST = "https://ecampus.psgtech.ac.in/"
+LOGIN_URL = "https://ecampus.psgtech.ac.in/studzone"
 ATT_URL = "https://ecampus.psgtech.ac.in/studzone/Attendance/StudentPercentage"
 
 @app.route("/")
@@ -25,32 +24,16 @@ def attendance():
 
         session = requests.Session()
 
-        # Step 1: get login page
-        r = session.get(LOGIN_PAGE)
-
-        soup = BeautifulSoup(r.text, "html.parser")
-
-        token_input = soup.find("input", {"name": "__RequestVerificationToken"})
-
-        if not token_input:
-            return jsonify({"error": "Login token not found"})
-
-        token = token_input["value"]
-
-        # Step 2: login
+        # LOGIN REQUEST
         payload = {
-            "UserName": student_id,
-            "Password": password,
-            "__RequestVerificationToken": token
+            "Rollno": student_id,
+            "Password": password
         }
 
-        session.post(LOGIN_POST, data=payload)
+        login = session.post(LOGIN_URL, data=payload)
 
-        # Step 3: fetch attendance page
+        # GET ATTENDANCE PAGE
         page = session.get(ATT_URL)
-
-        if "login" in page.url.lower():
-            return jsonify({"error": "Login failed"})
 
         soup = BeautifulSoup(page.text, "html.parser")
 
@@ -75,7 +58,6 @@ def attendance():
         return jsonify(subjects)
 
     except Exception as e:
-
         return jsonify({"error": str(e)})
 
 if __name__ == "__main__":
