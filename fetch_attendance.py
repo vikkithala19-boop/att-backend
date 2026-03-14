@@ -5,7 +5,8 @@ ATTENDANCE_URL = "https://ecampus.psgtech.ac.in/studzone/Attendance/StudentPerce
 def fetch_attendance(session, subject_map):
 
     res = session.get(ATTENDANCE_URL)
-    soup = BeautifulSoup(res.text, "lxml")  # faster parser
+
+    soup = BeautifulSoup(res.text, "lxml")
 
     table = soup.find("table")
 
@@ -16,6 +17,7 @@ def fetch_attendance(session, subject_map):
     rows = table.find_all("tr")[1:]
 
     for r in rows:
+
         cols = r.find_all("td")
 
         if len(cols) < 6:
@@ -23,6 +25,7 @@ def fetch_attendance(session, subject_map):
 
         course = cols[0].text.strip()
         total_hr = int(cols[1].text.strip())
+        absent = int(cols[3].text.strip())
         present = int(cols[4].text.strip())
         percent = cols[5].text.strip()
 
@@ -32,6 +35,9 @@ def fetch_attendance(session, subject_map):
         subjects.append({
             "course": course,
             "name": subject_map.get(course, "Unknown"),
+            "total": total_hr,
+            "present": present,
+            "absent": absent,
             "percent": percent
         })
 
