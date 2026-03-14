@@ -10,19 +10,14 @@ def fetch_courses(session):
 
     subject_map = {}
 
-    cards = soup.find_all("div", class_="card")
+    codes = soup.select(".coursecode")
+    names = soup.select(".coursename")
 
-    for card in cards:
+    for c, n in zip(codes, names):
 
-        text = card.get_text("\n").split("\n")
+        code = c.text.strip()
+        name = n.text.strip()
 
-        clean = [t.strip() for t in text if t.strip() != ""]
-
-        if len(clean) >= 2:
-
-            code = clean[0]
-            name = clean[1]
-
-            subject_map[code] = name
+        subject_map[code] = name
 
     return subject_map
