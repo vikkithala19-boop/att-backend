@@ -4,8 +4,6 @@ import requests
 from bs4 import BeautifulSoup
 
 app = Flask(__name__)
-
-# enable CORS so Vercel frontend can call backend
 CORS(app)
 
 LOGIN_URL = "https://ecampus.psgtech.ac.in/studzone"
@@ -21,7 +19,6 @@ def home():
 def attendance():
 
     data = request.json
-
     roll = data.get("id", "").upper()
     password = data.get("password", "")
 
@@ -32,7 +29,7 @@ def attendance():
         "Referer": LOGIN_URL
     }
 
-    # Step 1 — open login page
+    # open login page
     login_page = session.get(LOGIN_URL, headers=headers)
 
     soup = BeautifulSoup(login_page.text, "html.parser")
@@ -44,7 +41,6 @@ def attendance():
 
     token = token_input["value"]
 
-    # Step 2 — login
     payload = {
         "__RequestVerificationToken": token,
         "Rollno": roll,
@@ -58,15 +54,10 @@ def attendance():
         allow_redirects=True
     )
 
-    # detect wrong password
     if "Student Login" in login_response.text:
         return jsonify({"error": "Invalid roll number or password"})
 
-    # Step 3 — open attendance page
     page = session.get(ATT_URL, headers=headers)
-
-    if "Student Login" in page.text:
-        return jsonify({"error": "Login failed"})
 
     soup = BeautifulSoup(page.text, "html.parser")
 
@@ -100,15 +91,14 @@ def attendance():
                 "percent": percent
             })
 
-    # calculate overall attendance
     if len(percents) > 0:
         avg = sum(percents) / len(percents)
     else:
         avg = 0
 
-    # bunk calculation
     total_classes = 100
     attended = (avg / 100) * total_classes
+
     bunkable = int(attended / 0.75 - total_classes)
 
     if bunkable < 0:
