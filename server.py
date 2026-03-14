@@ -1,115 +1,73 @@
 from flask import Flask, request, jsonify
-from flask_cors import CORS
 import requests
 from bs4 import BeautifulSoup
 
+from fetch_courses import fetch_courses
+from fetch_attendance import fetch_attendance
+
 app = Flask(__name__)
-CORS(app)
 
 LOGIN_URL = "https://ecampus.psgtech.ac.in/studzone"
-ATT_URL = "https://ecampus.psgtech.ac.in/studzone/Attendance/StudentPercentage"
-
 
 @app.route("/")
 def home():
-    return "Attendance API Running"
-
+    return "PSG Attendance API Running"
 
 @app.route("/attendance", methods=["POST"])
 def attendance():
 
     data = request.json
-    roll = data.get("id", "").upper()
-    password = data.get("password", "")
+
+    roll = data.get("id")
+    password = data.get("password")
 
     session = requests.Session()
 
-    headers = {
-        "User-Agent": "Mozilla/5.0",
-        "Referer": LOGIN_URL
-    }
+    # open login page first
+    r = session.get(LOGIN_URL)
 
-    # open login page
-    login_page = session.get(LOGIN_URL, headers=headers)
+    soup = BeautifulSoup(r.text, "html.parser")
 
-    soup = BeautifulSoup(login_page.text, "html.parser")
+    token = soup.find("input", {"name": "__RequestVerificationToken"})
 
-    token_input = soup.find("input", {"name": "__RequestVerificationToken"})
-
-    if not token_input:
+    if not token:
         return jsonify({"error": "Login token not found"})
 
-    token = token_input["value"]
+    token = token["value"]
 
     payload = {
         "__RequestVerificationToken": token,
-        "Rollno": roll,
+        "RollNo": roll,
         "Password": password
     }
 
-    login_response = session.post(
-        LOGIN_URL,
-        data=payload,
-        headers=headers,
-        allow_redirects=True
-    )
+    login = session.post(LOGIN_URL, data=payload)
 
-    if "Student Login" in login_response.text:
+    if "Invalid" in login.text:
         return jsonify({"error": "Invalid roll number or password"})
 
-    page = session.get(ATT_URL, headers=headers)
+    # fetch subjects
+    subject_map = fetch_courses(session)
 
-    soup = BeautifulSoup(page.text, "html.parser")
+    # fetch attendance
+    attendance, subjects = fetch_attendance(session, subject_map)
 
-    table = soup.find("table")
+    # calculate bunkable classes
+    bunkable = 0
 
-    if not table:
-        return jsonify({"error": "Attendance table not found"})
+    if attendance >= 75:
 
-    rows = table.find_all("tr")
+        total = 100
+        attended = (attendance / 100) * total
 
-    subjects = []
-    percents = []
-
-    for row in rows:
-
-        cols = row.find_all("td")
-
-        if len(cols) >= 6:
-
-            course = cols[0].text.strip()
-            percent = cols[5].text.strip()
-
-            try:
-                p = float(percent)
-                percents.append(p)
-            except:
-                p = 0
-
-            subjects.append({
-                "course": course,
-                "percent": percent
-            })
-
-    if len(percents) > 0:
-        avg = sum(percents) / len(percents)
-    else:
-        avg = 0
-
-    total_classes = 100
-    attended = (avg / 100) * total_classes
-
-    bunkable = int(attended / 0.75 - total_classes)
-
-    if bunkable < 0:
-        bunkable = 0
+        bunkable = int((attended / 0.75) - total)
 
     return jsonify({
-        "attendance": round(avg, 2),
+        "attendance": attendance,
         "bunkable": bunkable,
         "subjects": subjects
     })
 
 
 if __name__ == "__main__":
-    app.run()
+    app.run(debug=True)
