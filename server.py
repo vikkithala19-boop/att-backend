@@ -1,4 +1,5 @@
-from flask import Flask, request, jsonify
+from flask import Flask,request,jsonify
+from flask_cors import CORS
 import requests
 from bs4 import BeautifulSoup
 
@@ -7,67 +8,65 @@ from fetch_attendance import fetch_attendance
 
 app = Flask(__name__)
 
-LOGIN_URL = "https://ecampus.psgtech.ac.in/studzone"
+# enable cors
+CORS(app)
+
+LOGIN_URL="https://ecampus.psgtech.ac.in/studzone"
 
 @app.route("/")
 def home():
-    return "PSG Attendance API Running"
+    return "Backend running"
 
-@app.route("/attendance", methods=["POST"])
+@app.route("/attendance",methods=["POST"])
 def attendance():
 
-    data = request.json
+    data=request.json
 
-    roll = data.get("id")
-    password = data.get("password")
+    roll=data.get("id")
+    password=data.get("password")
 
-    session = requests.Session()
+    session=requests.Session()
 
-    # open login page first
-    r = session.get(LOGIN_URL)
+    r=session.get(LOGIN_URL)
 
-    soup = BeautifulSoup(r.text, "html.parser")
+    soup=BeautifulSoup(r.text,"html.parser")
 
-    token = soup.find("input", {"name": "__RequestVerificationToken"})
+    token=soup.find("input",{"name":"__RequestVerificationToken"})
 
     if not token:
-        return jsonify({"error": "Login token not found"})
+        return jsonify({"error":"Login token not found"})
 
-    token = token["value"]
+    token=token["value"]
 
-    payload = {
-        "__RequestVerificationToken": token,
-        "RollNo": roll,
-        "Password": password
+    payload={
+        "__RequestVerificationToken":token,
+        "RollNo":roll,
+        "Password":password
     }
 
-    login = session.post(LOGIN_URL, data=payload)
+    login=session.post(LOGIN_URL,data=payload)
 
     if "Invalid" in login.text:
-        return jsonify({"error": "Invalid roll number or password"})
+        return jsonify({"error":"Invalid credentials"})
 
-    # fetch subjects
-    subject_map = fetch_courses(session)
+    subject_map=fetch_courses(session)
 
-    # fetch attendance
-    attendance, subjects = fetch_attendance(session, subject_map)
+    attendance,subjects=fetch_attendance(session,subject_map)
 
-    # calculate bunkable classes
-    bunkable = 0
+    bunkable=0
 
-    if attendance >= 75:
+    if attendance>=75:
 
-        total = 100
-        attended = (attendance / 100) * total
+        total=100
+        attended=(attendance/100)*total
 
-        bunkable = int((attended / 0.75) - total)
+        bunkable=int((attended/0.75)-total)
 
     return jsonify({
-        "attendance": attendance,
-        "bunkable": bunkable,
-        "subjects": subjects
+        "attendance":attendance,
+        "bunkable":bunkable,
+        "subjects":subjects
     })
 
-
-if __name__ == "__main__":
-    app.run(debug=True)
+if __name__=="__main__":
+    app.run()
