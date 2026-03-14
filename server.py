@@ -1,68 +1,82 @@
-from flask import Flask,request,jsonify
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 import requests
 from bs4 import BeautifulSoup
 
-app=Flask(__name__)
+app = Flask(__name__)
 CORS(app)
 
-LOGIN_PAGE="https://ecampus.psgtech.ac.in/"
-LOGIN_POST="https://ecampus.psgtech.ac.in/"
-ATT_URL="https://ecampus.psgtech.ac.in/studzone/Attendance/StudentPercentage"
+LOGIN_PAGE = "https://ecampus.psgtech.ac.in/"
+LOGIN_POST = "https://ecampus.psgtech.ac.in/"
+ATT_URL = "https://ecampus.psgtech.ac.in/studzone/Attendance/StudentPercentage"
 
 @app.route("/")
 def home():
     return "Attendance API Running"
 
-@app.route("/attendance",methods=["POST"])
+@app.route("/attendance", methods=["POST"])
 def attendance():
 
-    data=request.json
-    student_id=data["id"]
-    password=data["password"]
+    try:
 
-    session=requests.Session()
+        data = request.json
+        student_id = data.get("id")
+        password = data.get("password")
 
-    # Step 1: get login page
-    r=session.get(LOGIN_PAGE)
+        session = requests.Session()
 
-    soup=BeautifulSoup(r.text,"html.parser")
+        # Step 1: get login page
+        r = session.get(LOGIN_PAGE)
 
-    token=soup.find("input",{"name":"__RequestVerificationToken"})["value"]
+        soup = BeautifulSoup(r.text, "html.parser")
 
-    # Step 2: login payload
-    payload={
-        "UserName":student_id,
-        "Password":password,
-        "__RequestVerificationToken":token
-    }
+        token_input = soup.find("input", {"name": "__RequestVerificationToken"})
 
-    session.post(LOGIN_POST,data=payload)
+        if not token_input:
+            return jsonify({"error": "Login token not found"})
 
-    # Step 3: fetch attendance page
-    page=session.get(ATT_URL)
+        token = token_input["value"]
 
-    soup=BeautifulSoup(page.text,"html.parser")
+        # Step 2: login
+        payload = {
+            "UserName": student_id,
+            "Password": password,
+            "__RequestVerificationToken": token
+        }
 
-    rows=soup.select("table tbody tr")
+        session.post(LOGIN_POST, data=payload)
 
-    subjects=[]
+        # Step 3: fetch attendance page
+        page = session.get(ATT_URL)
 
-    for r in rows:
+        if "login" in page.url.lower():
+            return jsonify({"error": "Login failed"})
 
-        cols=[c.text.strip() for c in r.find_all("td")]
+        soup = BeautifulSoup(page.text, "html.parser")
 
-        if len(cols)>5:
+        rows = soup.select("table tbody tr")
 
-            subjects.append({
-                "course":cols[0],
-                "total":cols[1],
-                "absent":cols[3],
-                "present":cols[4],
-                "percent":cols[5]
-            })
+        subjects = []
 
-    return jsonify(subjects)
+        for r in rows:
 
-if __name__=="__main__":
+            cols = [c.text.strip() for c in r.find_all("td")]
+
+            if len(cols) >= 6:
+
+                subjects.append({
+                    "course": cols[0],
+                    "total": cols[1],
+                    "absent": cols[3],
+                    "present": cols[4],
+                    "percent": cols[5]
+                })
+
+        return jsonify(subjects)
+
+    except Exception as e:
+
+        return jsonify({"error": str(e)})
+
+if __name__ == "__main__":
     app.run()
