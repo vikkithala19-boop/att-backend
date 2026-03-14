@@ -1,8 +1,12 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import requests
 from bs4 import BeautifulSoup
 
 app = Flask(__name__)
+
+# enable CORS so Vercel frontend can call backend
+CORS(app)
 
 LOGIN_URL = "https://ecampus.psgtech.ac.in/studzone"
 ATT_URL = "https://ecampus.psgtech.ac.in/studzone/Attendance/StudentPercentage"
@@ -54,7 +58,7 @@ def attendance():
         allow_redirects=True
     )
 
-    # Detect wrong password
+    # detect wrong password
     if "Student Login" in login_response.text:
         return jsonify({"error": "Invalid roll number or password"})
 
