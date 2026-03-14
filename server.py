@@ -13,6 +13,7 @@ ATT_URL = "https://ecampus.psgtech.ac.in/studzone/Attendance/StudentPercentage"
 def home():
     return "Attendance API Running"
 
+
 @app.route("/attendance", methods=["POST"])
 def attendance():
 
@@ -37,7 +38,8 @@ def attendance():
 
         soup = BeautifulSoup(page.text, "html.parser")
 
-        rows = soup.select("table tbody tr")
+        # FIND TABLE ROWS
+        rows = soup.select("#StudentPercentageTable tbody tr")
 
         subjects = []
 
@@ -58,7 +60,11 @@ def attendance():
         return jsonify(subjects)
 
     except Exception as e:
-        return jsonify({"error": str(e)})
+
+        return jsonify({
+            "error": str(e)
+        })
+
 
 if __name__ == "__main__":
     app.run()
