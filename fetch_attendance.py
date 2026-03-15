@@ -14,13 +14,15 @@ def fetch_attendance(session, subject_map):
     total_present = 0
     total_hours = 0
 
+    last_updated = None
+
     rows = table.find_all("tr")[1:]
 
     for r in rows:
 
         cols = r.find_all("td")
 
-        if len(cols) < 6:
+        if len(cols) < 10:
             continue
 
         course = cols[0].text.strip()
@@ -28,6 +30,11 @@ def fetch_attendance(session, subject_map):
         absent = int(cols[3].text.strip())
         present = int(cols[4].text.strip())
         percent = cols[5].text.strip()
+
+        attendance_to = cols[9].text.strip()
+
+        if not last_updated:
+            last_updated = attendance_to
 
         total_present += present
         total_hours += total_hr
@@ -43,4 +50,4 @@ def fetch_attendance(session, subject_map):
 
     attendance = round((total_present / total_hours) * 100, 2)
 
-    return attendance, subjects
+    return attendance, subjects, last_updated
