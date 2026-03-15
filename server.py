@@ -16,15 +16,9 @@ HEADERS = {
     "User-Agent": "Mozilla/5.0"
 }
 
-# ⚡ session reuse
-SESSION = None
-SESSION_TIME = 0
-SESSION_TTL = 300  # 5 minutes
-
-# ⚡ data cache
-CACHE_DATA = None
-CACHE_TIME = 0
-CACHE_TTL = 60
+# cache per roll number
+CACHE = {}
+CACHE_TTL = 60  # seconds
 
 
 @app.route("/")
@@ -64,8 +58,7 @@ def login_psg(roll, password):
 @app.route("/attendance", methods=["POST"])
 def attendance():
 
-    global SESSION, SESSION_TIME
-    global CACHE_DATA, CACHE_TIME
+    global CACHE
 
     data = request.json
 
@@ -75,20 +68,21 @@ def attendance():
     if not roll or not password:
         return jsonify({"error": "Missing credentials"})
 
-    # ⚡ return cached data instantly
-    if CACHE_DATA and time.time() - CACHE_TIME < CACHE_TTL:
-        return jsonify(CACHE_DATA)
+    # check cache for this roll number
+    if roll in CACHE:
+
+        cached = CACHE[roll]
+
+        if time.time() - cached["time"] < CACHE_TTL:
+            return jsonify(cached["data"])
 
     try:
 
-        # ⚡ reuse PSG session
-        if SESSION is None or time.time() - SESSION_TIME > SESSION_TTL:
-            SESSION = login_psg(roll, password)
-            SESSION_TIME = time.time()
+        session = login_psg(roll, password)
 
-        subject_map = fetch_courses(SESSION)
+        subject_map = fetch_courses(session)
 
-        attendance, subjects, last_updated = fetch_attendance(SESSION, subject_map)
+        attendance, subjects, last_updated = fetch_attendance(session, subject_map)
 
         bunkable = 0
 
@@ -104,9 +98,11 @@ def attendance():
             "subjects": subjects
         }
 
-        # ⚡ store cache
-        CACHE_DATA = result
-        CACHE_TIME = time.time()
+        # store cache per roll number
+        CACHE[roll] = {
+            "data": result,
+            "time": time.time()
+        }
 
         return jsonify(result)
 
