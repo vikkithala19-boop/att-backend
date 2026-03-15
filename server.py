@@ -12,8 +12,7 @@ CORS(app)
 LOGIN_URL = "https://ecampus.psgtech.ac.in/studzone"
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0",
-    "Content-Type": "application/x-www-form-urlencoded"
+    "User-Agent": "Mozilla/5.0"
 }
 
 
@@ -37,8 +36,8 @@ def attendance():
 
         session = requests.Session()
 
-        # Step 1 — open login page
-        r = session.get(LOGIN_URL, headers=HEADERS, timeout=15)
+        # open login page
+        r = session.get(LOGIN_URL, headers=HEADERS)
 
         soup = BeautifulSoup(r.text, "html.parser")
 
@@ -49,23 +48,23 @@ def attendance():
 
         token = token["value"]
 
-        # Step 2 — login
+        # login payload
         payload = {
             "__RequestVerificationToken": token,
             "RollNo": roll,
             "Password": password
         }
 
-        login = session.post(LOGIN_URL, data=payload, headers=HEADERS, timeout=15)
+        login = session.post(LOGIN_URL, data=payload, headers=HEADERS)
 
         if "Invalid" in login.text:
             return jsonify({"error": "Invalid credentials"})
 
-        # Step 3 — fetch course names
+        # fetch subjects
         subject_map = fetch_courses(session)
 
-        # Step 4 — fetch attendance
-        attendance, subjects = fetch_attendance(session, subject_map)
+        # fetch attendance data
+        attendance, subjects, last_updated = fetch_attendance(session, subject_map)
 
         bunkable = 0
 
@@ -77,6 +76,7 @@ def attendance():
         return jsonify({
             "attendance": attendance,
             "bunkable": bunkable,
+            "updated": last_updated,
             "subjects": subjects
         })
 
