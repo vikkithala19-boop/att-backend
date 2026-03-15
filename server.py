@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import requests
 from bs4 import BeautifulSoup
+import time
 
 from fetch_courses import fetch_courses
 from fetch_attendance import fetch_attendance
@@ -15,6 +16,11 @@ HEADERS = {
     "User-Agent": "Mozilla/5.0"
 }
 
+# ⚡ cache variables
+CACHE_DATA = None
+CACHE_TIME = 0
+CACHE_TTL = 60  # seconds
+
 
 @app.route("/")
 def home():
@@ -24,6 +30,8 @@ def home():
 @app.route("/attendance", methods=["POST"])
 def attendance():
 
+    global CACHE_DATA, CACHE_TIME
+
     data = request.json
 
     roll = data.get("id")
@@ -31,6 +39,10 @@ def attendance():
 
     if not roll or not password:
         return jsonify({"error": "Missing credentials"})
+
+    # ⚡ return cached result if still valid
+    if CACHE_DATA and time.time() - CACHE_TIME < CACHE_TTL:
+        return jsonify(CACHE_DATA)
 
     try:
 
@@ -48,7 +60,6 @@ def attendance():
 
         token = token["value"]
 
-        # login payload
         payload = {
             "__RequestVerificationToken": token,
             "RollNo": roll,
@@ -60,7 +71,7 @@ def attendance():
         if "Invalid" in login.text:
             return jsonify({"error": "Invalid credentials"})
 
-        # fetch subjects
+        # fetch course names
         subject_map = fetch_courses(session)
 
         # fetch attendance data
@@ -73,12 +84,18 @@ def attendance():
             attended = (attendance / 100) * total
             bunkable = int((attended / 0.75) - total)
 
-        return jsonify({
+        result = {
             "attendance": attendance,
             "bunkable": bunkable,
             "updated": last_updated,
             "subjects": subjects
-        })
+        }
+
+        # ⚡ store in cache
+        CACHE_DATA = result
+        CACHE_TIME = time.time()
+
+        return jsonify(result)
 
     except Exception as e:
         return jsonify({"error": str(e)})
