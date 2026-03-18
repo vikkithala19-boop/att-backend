@@ -7,6 +7,7 @@ import os
 
 from openpyxl import Workbook, load_workbook
 from datetime import datetime
+import pytz
 
 from fetch_courses import fetch_courses
 from fetch_attendance import fetch_attendance
@@ -28,9 +29,10 @@ CACHE_TTL = 60
 # ✅ SAFE LOG FUNCTION
 def log_user(roll):
     try:
-        file_name = "users.xlsx"
+        file_name = "users.xlsx" 
 
-        now = datetime.now()
+        ist=pytz.timezone('Asia/Kolkata')
+        now = datetime.now(ist)
         date = now.strftime("%d-%m-%Y")
         time_now = now.strftime("%H:%M:%S")
 
