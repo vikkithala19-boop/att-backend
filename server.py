@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 import requests
 from bs4 import BeautifulSoup
@@ -20,33 +20,35 @@ HEADERS = {
     "User-Agent": "Mozilla/5.0"
 }
 
-# cache per roll number
+# cache
 CACHE = {}
-CACHE_TTL = 60  # seconds
+CACHE_TTL = 60
 
 
-# ✅ LOG USER FUNCTION (NEW)
+# ✅ SAFE LOG FUNCTION
 def log_user(roll):
+    try:
+        file_name = "users.xlsx"
 
-    file_name = "users.xlsx"
+        now = datetime.now()
+        date = now.strftime("%d-%m-%Y")
+        time_now = now.strftime("%H:%M:%S")
 
-    now = datetime.now()
-    date = now.strftime("%d-%m-%Y")
-    time_now = now.strftime("%H:%M:%S")
+        # create file if not exists
+        if not os.path.exists(file_name):
+            wb = Workbook()
+            ws = wb.active
+            ws.append(["Roll Number", "Date", "Time"])
+            wb.save(file_name)
 
-    # create file if not exists
-    if not os.path.exists(file_name):
-        wb = Workbook()
+        wb = load_workbook(file_name)
         ws = wb.active
-        ws.append(["Roll Number", "Date", "Time"])
+
+        ws.append([roll, date, time_now])
         wb.save(file_name)
 
-    wb = load_workbook(file_name)
-    ws = wb.active
-
-    ws.append([roll, date, time_now])
-
-    wb.save(file_name)
+    except Exception as e:
+        print("LOG ERROR:", e)   # ⚠️ prevent crash
 
 
 @app.route("/")
@@ -96,14 +98,12 @@ def attendance():
     if not roll or not password:
         return jsonify({"error": "Missing credentials"})
 
-    # ✅ LOG USER HERE (NEW)
+    # ✅ log user safely
     log_user(roll)
 
-    # check cache
+    # cache check
     if roll in CACHE:
-
         cached = CACHE[roll]
-
         if time.time() - cached["time"] < CACHE_TTL:
             return jsonify(cached["data"])
 
@@ -129,7 +129,6 @@ def attendance():
             "subjects": subjects
         }
 
-        # cache store
         CACHE[roll] = {
             "data": result,
             "time": time.time()
@@ -139,6 +138,18 @@ def attendance():
 
     except Exception as e:
         return jsonify({"error": str(e)})
+
+
+# ✅ SAFE DOWNLOAD ROUTE
+@app.route("/download")
+def download_file():
+
+    file_name = "users.xlsx"
+
+    if not os.path.exists(file_name):
+        return jsonify({"error": "No data yet"})
+
+    return send_file(file_name, as_attachment=True)
 
 
 if __name__ == "__main__":
