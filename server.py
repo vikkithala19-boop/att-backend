@@ -3,6 +3,10 @@ from flask_cors import CORS
 import requests
 from bs4 import BeautifulSoup
 import time
+import os
+
+from openpyxl import Workbook, load_workbook
+from datetime import datetime
 
 from fetch_courses import fetch_courses
 from fetch_attendance import fetch_attendance
@@ -19,6 +23,30 @@ HEADERS = {
 # cache per roll number
 CACHE = {}
 CACHE_TTL = 60  # seconds
+
+
+# ✅ LOG USER FUNCTION (NEW)
+def log_user(roll):
+
+    file_name = "users.xlsx"
+
+    now = datetime.now()
+    date = now.strftime("%d-%m-%Y")
+    time_now = now.strftime("%H:%M:%S")
+
+    # create file if not exists
+    if not os.path.exists(file_name):
+        wb = Workbook()
+        ws = wb.active
+        ws.append(["Roll Number", "Date", "Time"])
+        wb.save(file_name)
+
+    wb = load_workbook(file_name)
+    ws = wb.active
+
+    ws.append([roll, date, time_now])
+
+    wb.save(file_name)
 
 
 @app.route("/")
@@ -68,7 +96,10 @@ def attendance():
     if not roll or not password:
         return jsonify({"error": "Missing credentials"})
 
-    # check cache for this roll number
+    # ✅ LOG USER HERE (NEW)
+    log_user(roll)
+
+    # check cache
     if roll in CACHE:
 
         cached = CACHE[roll]
@@ -98,7 +129,7 @@ def attendance():
             "subjects": subjects
         }
 
-        # store cache per roll number
+        # cache store
         CACHE[roll] = {
             "data": result,
             "time": time.time()
