@@ -5,10 +5,20 @@ ATTENDANCE_URL = "https://ecampus.psgtech.ac.in/studzone/Attendance/StudentPerce
 def fetch_attendance(session, subject_map):
 
     res = session.get(ATTENDANCE_URL)
+    if res.status_code != 200:
+        raise Exception(f"Failed to fetch attendance page (status {res.status_code})")
 
     soup = BeautifulSoup(res.text, "lxml")
 
     table = soup.find("table")
+    if table is None:
+        # Try to find an error/notice on the page to provide a better message
+        possible_error = soup.find(class_="validation-summary-errors") or soup.find(class_="error") or soup.find("p")
+        detail = possible_error.get_text(strip=True) if possible_error else None
+        msg = "Attendance table not found. Possible causes: not logged in, page layout changed, or the site returned an unexpected response."
+        if detail:
+            msg += f" Page message: {detail}"
+        raise Exception(msg)
 
     subjects = []
     total_present = 0
@@ -26,9 +36,18 @@ def fetch_attendance(session, subject_map):
             continue
 
         course = cols[0].text.strip()
-        total_hr = int(cols[1].text.strip())
-        absent = int(cols[3].text.strip())
-        present = int(cols[4].text.strip())
+        try:
+            total_hr = int(cols[1].text.strip())
+        except ValueError:
+            total_hr = 0
+        try:
+            absent = int(cols[3].text.strip())
+        except ValueError:
+            absent = 0
+        try:
+            present = int(cols[4].text.strip())
+        except ValueError:
+            present = 0
         percent = cols[5].text.strip()
 
         attendance_to = cols[9].text.strip()
@@ -48,6 +67,10 @@ def fetch_attendance(session, subject_map):
             "percent": percent
         })
 
-    attendance = round((total_present / total_hours) * 100, 2)
+    # guard against division by zero
+    if total_hours == 0:
+        attendance = 0.0
+    else:
+        attendance = round((total_present / total_hours) * 100, 2)
 
     return attendance, subjects, last_updated
