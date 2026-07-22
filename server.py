@@ -75,8 +75,9 @@ def login_psg(roll, password):
 
     payload = {
         "__RequestVerificationToken": token,
-        "RollNo": roll,
-        "Password": password
+        "rollno": roll,
+        "password": password,
+        "chkterms": "on"
     }
 
     login = session.post(LOGIN_URL, data=payload, headers=HEADERS)
