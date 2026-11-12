@@ -1,159 +1,131 @@
-from flask import Flask, request, jsonify, send_file
-from flask_cors import CORS
-import requests
 from bs4 import BeautifulSoup
-import time
-import os
+import re
 
-from openpyxl import Workbook, load_workbook
-from datetime import datetime
-import pytz
-
-from fetch_courses import fetch_courses
-from fetch_attendance import fetch_attendance
-
-app = Flask(__name__)
-CORS(app)
-
-LOGIN_URL = "https://ecampus.psgtech.ac.in/studzone"
-
-HEADERS = {
-    "User-Agent": "Mozilla/5.0"
-}
-
-# cache
-CACHE = {}
-CACHE_TTL = 60
+ATTENDANCE_URL = "https://ecampus.psgtech.ac.in/studzone/Attendance/StudentPercentage"
 
 
-# ✅ SAFE LOG FUNCTION
-def log_user(roll):
+def _save_debug_html(file_name, html):
     try:
-        file_name = "users.xlsx" 
-
-        ist=pytz.timezone('Asia/Kolkata')
-        now = datetime.now(ist)
-        date = now.strftime("%d-%m-%Y")
-        time_now = now.strftime("%H:%M:%S")
-
-        # create file if not exists
-        if not os.path.exists(file_name):
-            wb = Workbook()
-            ws = wb.active
-            ws.append(["Roll Number", "Date", "Time"])
-            wb.save(file_name)
-
-        wb = load_workbook(file_name)
-        ws = wb.active
-
-        ws.append([roll, date, time_now])
-        wb.save(file_name)
-
-    except Exception as e:
-        print("LOG ERROR:", e)   # ⚠️ prevent crash
+        with open(file_name, "w", encoding="utf-8") as f:
+            f.write(html)
+    except Exception:
+        pass
 
 
-@app.route("/")
-def home():
-    return "PSG Attendance Backend Running"
-
-
-def login_psg(roll, password):
-
-    session = requests.Session()
-
-    r = session.get(LOGIN_URL, headers=HEADERS)
-
-    soup = BeautifulSoup(r.text, "html.parser")
-
-    token = soup.find("input", {"name": "__RequestVerificationToken"})
-
-    if not token:
-        raise Exception("Login token not found")
-
-    token = token["value"]
-
-    payload = {
-        "__RequestVerificationToken": token,
-        "rollno": roll,
-        "password": password,
-        "chkterms": "on"
-    }
-
-    login = session.post(LOGIN_URL, data=payload, headers=HEADERS)
-
-    if "Invalid" in login.text:
-        raise Exception("Invalid credentials")
-
-    return session
-
-
-@app.route("/attendance", methods=["POST"])
-def attendance():
-
-    global CACHE
-
-    data = request.json
-
-    roll = data.get("id")
-    password = data.get("password")
-
-    if not roll or not password:
-        return jsonify({"error": "Missing credentials"})
-
-    # ✅ log user safely
-    log_user(roll)
-
-    # cache check
-    if roll in CACHE:
-        cached = CACHE[roll]
-        if time.time() - cached["time"] < CACHE_TTL:
-            return jsonify(cached["data"])
-
+def _clean_number(value):
     try:
-
-        session = login_psg(roll, password)
-
-        subject_map = fetch_courses(session)
-
-        attendance, subjects, last_updated = fetch_attendance(session, subject_map)
-
-        bunkable = 0
-
-        if attendance >= 75:
-            total = 100
-            attended = (attendance / 100) * total
-            bunkable = int((attended / 0.75) - total)
-
-        result = {
-            "attendance": attendance,
-            "bunkable": bunkable,
-            "updated": last_updated,
-            "subjects": subjects
-        }
-
-        CACHE[roll] = {
-            "data": result,
-            "time": time.time()
-        }
-
-        return jsonify(result)
-
-    except Exception as e:
-        return jsonify({"error": str(e)})
+        return int(float(str(value).replace(",", "").replace("%", "")))
+    except Exception:
+        return 0
 
 
-# ✅ SAFE DOWNLOAD ROUTE
-@app.route("/download")
-def download_file():
-
-    file_name = "users.xlsx"
-
-    if not os.path.exists(file_name):
-        return jsonify({"error": "No data yet"})
-
-    return send_file(file_name, as_attachment=True)
+def _get_cell_text(cell):
+    return cell.get_text(" ", strip=True) if cell else ""
 
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+def fetch_attendance(session, subject_map):
+    try:
+        res = session.get(ATTENDANCE_URL, timeout=20)
+        res.raise_for_status()
+    except Exception as exc:
+        raise Exception(f"Attendance page request failed: {exc}") from exc
+
+    if res.status_code != 200:
+        raise Exception(f"Attendance page returned {res.status_code}")
+
+    soup = BeautifulSoup(res.text, "lxml")
+
+    table = None
+    for candidate in soup.select("table#example, table.example, table[id*='example'], table[class*='example']"):
+        if candidate.find("tr"):
+            table = candidate
+            break
+
+    if table is None:
+        for candidate in soup.select("table"):
+            rows = candidate.find_all("tr")
+            if rows and any("attendance" in row.get_text(" ", strip=True).lower() for row in rows[:3]):
+                table = candidate
+                break
+
+    if table is None:
+        _save_debug_html("attendance_debug.html", res.text)
+        raise Exception("Attendance table not found; page structure may have changed")
+
+    subject_rows = []
+    tbody = table.find("tbody")
+    if tbody:
+        subject_rows = tbody.find_all("tr")
+    else:
+        subject_rows = table.find_all("tr")
+
+    subjects = []
+    total_present = 0
+    total_hours = 0
+    last_updated = ""
+
+    for row in subject_rows:
+        cols = row.find_all(["td", "th"])
+        if not cols:
+            continue
+
+        texts = [_get_cell_text(col) for col in cols]
+        if len(texts) < 4:
+            continue
+
+        header_text = " ".join(texts).lower()
+        if "course" in header_text or "subject" in header_text or "attendance" in header_text:
+            continue
+
+        course = ""
+        total = 0
+        absent = 0
+        present = 0
+        percent = "0"
+
+        if len(cols) >= 10:
+            course = _get_cell_text(cols[0])
+            total = _clean_number(_get_cell_text(cols[1]))
+            absent = _clean_number(_get_cell_text(cols[3]))
+            present = _clean_number(_get_cell_text(cols[4]))
+            percent = _get_cell_text(cols[5])
+            last_updated = _get_cell_text(cols[9]) if not last_updated else last_updated
+        else:
+            course = _get_cell_text(cols[0])
+            for idx, cell in enumerate(cols[1:], start=1):
+                value = _get_cell_text(cell)
+                if not value:
+                    continue
+                if re.search(r"\d", value):
+                    if total == 0 and not any(ch.isalpha() for ch in value):
+                        total = _clean_number(value)
+                    elif present == 0 and any(word in value.lower() for word in ["present", "attended"]):
+                        present = _clean_number(value)
+                    elif absent == 0 and any(word in value.lower() for word in ["absent", "missed"]):
+                        absent = _clean_number(value)
+                    elif percent == "0" and "%" in value:
+                        percent = value
+
+            if not present:
+                present = max(0, total - absent)
+
+        if not course:
+            continue
+
+        if not last_updated:
+            last_updated = _get_cell_text(row.find_all("td")[-1]) if row.find_all("td") else ""
+
+        total_present += present
+        total_hours += total
+
+        subjects.append({
+            "course": course,
+            "name": subject_map.get(course, "Unknown"),
+            "total": total,
+            "present": present,
+            "absent": absent,
+            "percent": percent
+        })
+
+    attendance = round((total_present / total_hours) * 100, 2) if total_hours else 0
+    return attendance, subjects, last_updated

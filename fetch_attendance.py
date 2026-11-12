@@ -1,74 +1,98 @@
 from bs4 import BeautifulSoup
+import re
 
-ATTENDANCE_URL = "https://ecampus.psgtech.ac.in/studzone/Attendance/StudentPercentage"
+COURSEPLAN_URL = "https://ecampus.psgtech.ac.in/studzone/Attendance/courseplan"
 
-def fetch_attendance(session, subject_map):
+# cache
+_cached_subjects = None
 
-    res = session.get(ATTENDANCE_URL)
 
-    if res.status_code != 200:
-        raise Exception(f"Attendance page returned {res.status_code}")
+def _save_debug_html(file_name, html):
+    try:
+        with open(file_name, "w", encoding="utf-8") as f:
+            f.write(html)
+    except Exception:
+        pass
 
-    soup = BeautifulSoup(res.text, "lxml")
 
-    table = soup.find("table", id="example")
+def _extract_subject_map(soup):
+    subject_map = {}
 
-    if table is None:
-        with open("attendance_debug.html", "w", encoding="utf-8") as f:
-            f.write(res.text)
+    for table in soup.select("table"):
+        for row in table.find_all("tr"):
+            cells = [cell.get_text(" ", strip=True) for cell in row.find_all(["td", "th"])]
+            if len(cells) < 2:
+                continue
 
-        raise Exception("Attendance table (#example) not found")
+            code = ""
+            name = ""
 
-    subjects = []
-    total_present = 0
-    total_hours = 0
-    last_updated = ""
+            for cell in cells:
+                if not cell:
+                    continue
+                if re.fullmatch(r"[A-Za-z0-9/.-]+", cell) and len(cell) <= 12:
+                    if not code:
+                        code = cell
+                elif any(ch.isalpha() for ch in cell):
+                    if not name:
+                        name = cell
 
-    rows = table.find("tbody").find_all("tr")
+            if code and name and code not in subject_map:
+                subject_map[code] = name
 
-    for row in rows:
+    if subject_map:
+        return subject_map
 
-        cols = row.find_all("td")
-
-        if len(cols) < 10:
+    for row in soup.select("tr"):
+        cells = [cell.get_text(" ", strip=True) for cell in row.find_all(["td", "th"])]
+        if len(cells) < 2:
             continue
 
-        course = cols[0].get_text(strip=True)
+        text = " | ".join(cells)
+        if "Course" in text and "Name" in text:
+            continue
 
-        try:
-            total = int(cols[1].get_text(strip=True))
-        except:
-            total = 0
+        candidate = [cell for cell in cells if cell and not re.fullmatch(r"[\d%\s.-]+", cell)]
+        if len(candidate) >= 2:
+            code = candidate[0]
+            name = candidate[1]
+            if code and name:
+                subject_map[code] = name
 
-        try:
-            absent = int(cols[3].get_text(strip=True))
-        except:
-            absent = 0
+    return subject_map
 
-        try:
-            present = int(cols[4].get_text(strip=True))
-        except:
-            present = 0
 
-        percent = cols[5].get_text(strip=True)
+def fetch_courses(session):
+    global _cached_subjects
 
-        attendance_to = cols[9].get_text(strip=True)
+    if _cached_subjects is not None:
+        return _cached_subjects
 
-        if not last_updated:
-            last_updated = attendance_to
+    try:
+        res = session.get(COURSEPLAN_URL, timeout=20)
+        res.raise_for_status()
+    except Exception as exc:
+        raise Exception(f"Course plan request failed: {exc}") from exc
 
-        total_present += present
-        total_hours += total
+    soup = BeautifulSoup(res.text, "html.parser")
+    subject_map = {}
 
-        subjects.append({
-            "course": course,
-            "name": subject_map.get(course, "Unknown"),
-            "total": total,
-            "present": present,
-            "absent": absent,
-            "percent": percent
-        })
+    codes = soup.select(".coursecode, [class*='coursecode'], td.coursecode, span.coursecode")
+    names = soup.select(".coursename, [class*='coursename'], td.coursename, span.coursename")
 
-    attendance = round((total_present / total_hours) * 100, 2) if total_hours else 0
+    if codes or names:
+        for c, n in zip(codes, names):
+            code = c.get_text(" ", strip=True)
+            name = n.get_text(" ", strip=True)
+            if code and name:
+                subject_map[code] = name
 
-    return attendance, subjects, last_updated
+    if not subject_map:
+        subject_map = _extract_subject_map(soup)
+
+    if not subject_map:
+        _save_debug_html("courseplan_debug.html", res.text)
+        raise Exception("Course plan page structure changed or no subject codes were found")
+
+    _cached_subjects = subject_map
+    return subject_map
